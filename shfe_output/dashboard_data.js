@@ -1,0 +1,1 @@
+window.SHFE_DASHBOARD_DATA = window.SHFE_DASHBOARD_DATA || {};
