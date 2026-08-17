@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>铜 / 金 / 银 市场风险看板</title>
+<style>
+body{margin:0;background:#09111f;color:#edf3fb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.box{max-width:620px;padding:28px;text-align:center}.title{font-size:22px;font-weight:700;margin-bottom:12px}.sub{color:#99aac4;font-size:13px;line-height:1.7}.err{color:#f27d7d;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div class="box"><div class="title">铜 / 金 / 银 市场风险看板</div><div id="status" class="sub">正在加载 v1.10 全面版，请稍候…</div></div>
+<script>
+(async()=>{
+  const parts=Array.from({length:7},(_,i)=>`public_parts/part${String(i+1).padStart(2,'0')}.txt`);
+  try{
+    const texts=await Promise.all(parts.map(async p=>{
+      const r=await fetch(p,{cache:'no-store'});
+      if(!r.ok)throw new Error(`${p} 加载失败（HTTP ${r.status}）`);
+      return await r.text();
+    }));
+    const html=texts.join('');
+    if(!html.includes('<!doctype html>')||!html.includes('</html>'))throw new Error('页面源文件不完整');
+    document.open();
+    document.write(html);
+    document.close();
+  }catch(e){
+    const el=document.getElementById('status');
+    el.className='sub err';
+    el.textContent='看板加载失败：'+e.message+'\n请稍后刷新页面。';
+  }
+})();
+</script>
+</body>
+</html>
