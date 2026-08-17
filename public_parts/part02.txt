@@ -1,0 +1,83 @@
+isplay:block;font-size:10px;color:#9fb0c7;margin-bottom:5px}.manual-item input{width:100%;background:#091322;border:1px solid #3b526f;color:#fff;border-radius:6px;padding:7px;font-size:12px}.manual-note{font-size:10px;color:#8fa3bf;line-height:1.55;margin-top:8px}
+@media(max-width:1150px){.factor-summary{grid-template-columns:repeat(2,1fr)}.factor-score{grid-template-columns:1fr}.status-grid{grid-template-columns:1fr 1fr}.manual-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:800px){.factor-summary,.status-grid,.manual-grid{grid-template-columns:1fr}}
+
+@media(max-width:1150px){.kpis{grid-template-columns:repeat(3,1fr)}.executive{grid-template-columns:1fr}.method-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:800px){.grid,.grid.equal{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}.method-grid,.glossary,.settings{grid-template-columns:1fr}.container{padding:14px}.header{padding:17px}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-row">
+    <div><h1>铜 / 金 / 银 市场、月均价与毛利风险看板</h1><p>全面版：月均价 + 期货结构 + 库存/仓单 + 外盘/汇率 + 宏观 + COT + OOS因子准入。</p></div>
+    <div class="small" id="generated">等待数据...</div>
+  </div>
+</div>
+<div class="container">
+  <div id="warning" class="warning" style="display:none"></div>
+  <div class="leader-guide">
+    <h2>这张看板怎么读（管理层版）</h2>
+    <p><b>第一优先级是月均价，而不是今天涨了多少。</b> 紫金报价逻辑以月度平均结算价为核心，所以单日行情主要用于判断“剩余月份还有多大上行/下行风险”。</p>
+    <p><b>红色不是“马上会跌”，绿色也不是“马上会涨”。</b> 系统把趋势、波动、持仓和期限结构转成风险语言，目的是帮助报价、采购和套保，而不是做方向性投机。</p>
+    <div class="guide-pills"><span class="guide-pill">月均价：决定合同结算</span><span class="guide-pill">趋势：判断价格状态</span><span class="guide-pill">持仓：判断资金是否确认趋势</span><span class="guide-pill">波动率：判断价格风险是否放大</span><span class="guide-pill">期限结构：判断近端供需是否紧张</span></div>
+  </div>
+  <div class="leader-guide" style="margin-top:10px"><h2>数据源说明</h2><p><b>免安装版会在打开网页时自动尝试加载在线期货日线数据。</b> 市场展示使用新浪期货的 CU0 / AU0 / AG0 连续合约以及当前月沪铜具体合约；这些适合行情与风险分析。<b>正式报价结算仍以合同指定的 SHFE / SGE / 白银基准为准。</b></p><p>若页面仍显示“—”，请先看顶部提示：系统不会把网络失败、未发布或无效值当成0。全面版还会尝试读取SHFE仓单/库存、Yahoo外盘与汇率、FRED宏观、CFTC COT；浏览器跨域失败时可运行文件夹内的一键更新脚本。</p></div>
+  <div class="tabs">
+    <button class="tab active" data-tab="cu">铜 CU</button>
+    <button class="tab" data-tab="au">黄金 AU0</button>
+    <button class="tab" data-tab="ag">白银 AG0</button>
+    <button class="tab" data-tab="factors">综合因子</button>
+    <button class="tab" data-tab="faq">常见问题</button>
+    <button class="tab" data-tab="method">方法与回测标准</button>
+  </div>
+  <div id="content"></div>
+</div>
+<script src="./external_factor_data.js"></script>
+<script src="./shfe_output/dashboard_data.js"></script>
+<script>
+const D=window.SHFE_DASHBOARD_DATA||{};
+const F=window.EXTERNAL_FACTOR_DATA||{};
+F.manual=Object.assign({},F.manual||{},JSON.parse(localStorage.getItem('METAL_RISK_MANUAL')||'{}'));
+const fnum=(v,d=0)=> (v===null||v===undefined||Number.isNaN(+v))?'—':Number(v).toLocaleString('zh-CN',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fpct=(v,d=2)=> (v===null||v===undefined||Number.isNaN(+v))?'—':(Number(v)*100).toFixed(d)+'%';
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const last=a=>a&&a.length?a[a.length-1]:null;
+const finite=x=>Number.isFinite(+x);
+const validPrice=x=>Number.isFinite(+x)&&(+x)>0;
+const lastValid=(rows,key)=>{for(let i=(rows||[]).length-1;i>=0;i--){if(validPrice(rows[i]?.[key]))return rows[i]}return null};
+const settledRows=(rows,key)=>(rows||[]).filter(r=>validPrice(r?.[key]));
+function nums(rows,key){return (rows||[]).map(r=>+r[key]).filter(Number.isFinite)}
+function avg(a,key){let x=a.map(r=>+r[key]).filter(Number.isFinite);return x.length?x.reduce((p,c)=>p+c,0)/x.length:null}
+function mean(x){return x.length?x.reduce((a,b)=>a+b,0)/x.length:null}
+function std(x){if(x.length<2)return null;let m=mean(x);return Math.sqrt(x.reduce((s,v)=>s+(v-m)*(v-m),0)/(x.length-1))}
+function pct(a,b){return finite(a)&&finite(b)&&+b!==0?(+a/+b-1):null}
+function nthFromEnd(rows,n){return rows&&rows.length>n?rows[rows.length-1-n]:null}
+function priceKey(rows){let l=last(rows);return l&&validPrice(l.settle)?'settle':'close'}
+function series(rows,key){return rows.map(r=>+r[key]).filter(v=>Number.isFinite(v)&&v>0)}
+function tailValues(rows,key,n){return settledRows(rows,key).slice(-n).map(r=>+r[key])}
+function movingAvg(rows,key,n){let x=tailValues(rows,key,n);return x.length>=Math.min(n,5)?mean(x):null}
+function rollingStd(rows,key,n){let x=tailValues(rows,key,n);return x.length>=Math.min(n,5)?std(x):null}
+function rsi(rows,key,n=14){let x=tailValues(rows,key,n+1);if(x.length<n+1)return null;let gains=0,loss=0;for(let i=1;i<x.length;i++){let d=x[i]-x[i-1];if(d>0)gains+=d;else loss-=d}if(loss===0)return 100;let rs=(gains/n)/(loss/n);return 100-100/(1+rs)}
+function dailyReturns(rows,key,n=260){let x=tailValues(rows,key,n+1),r=[];for(let i=1;i<x.length;i++)if(x[i-1])r.push(x[i]/x[i-1]-1);return r}
+function annualVol(rows,key,n=20){let r=dailyReturns(rows,key,n);let s=std(r);return s==null?null:s*Math.sqrt(252)}
+function percentileRank(arr,v){let x=arr.filter(Number.isFinite);if(!x.length||!Number.isFinite(v))return null;return x.filter(z=>z<=v).length/x.length}
+function volPercentile(rows,key){if(rows.length<70)return null;let vs=[];for(let i=40;i<rows.length;i++){let sub=rows.slice(0,i+1);let v=annualVol(sub,key,20);if(Number.isFinite(v))vs.push(v)}let cur=annualVol(rows,key,20);return percentileRank(vs.slice(-252),cur)}
+function corr(a,b){let pairs=[];for(let i=0;i<Math.min(a.length,b.length);i++)if(Number.isFinite(a[i])&&Number.isFinite(b[i]))pairs.push([a[i],b[i]]);if(pairs.length<10)return null;let x=pairs.map(z=>z[0]),y=pairs.map(z=>z[1]),mx=mean(x),my=mean(y),sx=std(x),sy=std(y);if(!sx||!sy)return null;return pairs.reduce((s,z)=>s+(z[0]-mx)*(z[1]-my),0)/((pairs.length-1)*sx*sy)}
+function businessDaysInMonth(dateStr){if(!dateStr)return 20;let d=new Date(dateStr+'T00:00:00'),y=d.getFullYear(),m=d.getMonth(),count=0;for(let day=1;;day++){let x=new Date(y,m,day);if(x.getMonth()!==m)break;let w=x.getDay();if(w!==0&&w!==6)count++}return count}
+function monthStats(rows,key){let l=lastValid(rows,key);if(!l)return{};let month=String(l.date).slice(0,7),cur=rows.filter(r=>String(r.date).slice(0,7)===month&&validPrice(r[key]));let vals=cur.map(r=>+r[key]);let mavg=mean(vals),obs=cur.length,est=businessDaysInMonth(l.date),lock=est?clamp(obs/est,0,1):null;return{month,avg:mavg,obs,est,lock,remaining:lock==null?null:1-lock,lastSettledDate:l.date}}
+function alignReturns(rowsA,keyA,rowsB,keyB,n=60){let ma=new Map(rowsA.map(r=>[r.date,+r[keyA]])), mb=new Map(rowsB.map(r=>[r.date,+r[keyB]]));let ds=[...ma.keys()].filter(d=>mb.has(d)).sort().slice(-(n+1));let ra=[],rb=[];for(let i=1;i<ds.length;i++){let d0=ds[i-1],d1=ds[i],a0=ma.get(d0),a1=ma.get(d1),b0=mb.get(d0),b1=mb.get(d1);ra.push(a1/a0-1);rb.push(b1/b0-1)}return corr(ra,rb)}
+function gsRatioStats(){let au=D.au0||[],ag=D.ag0||[],ka=priceKey(au),ks=priceKey(ag),ma=new Map(au.map(r=>[r.date,+r[ka]])),ms=new Map(ag.map(r=>[r.date,+r[ks]]));let ds=[...ma.keys()].filter(d=>ms.has(d)).sort();if(ds.length<20)return{};/* AU约为元/克，AG约为元/千克；换成同一质量单位后再计算金银比 */let vals=ds.map(d=>ma.get(d)*1000/ms.get(d)),cur=last(vals),w=vals.slice(-60),m=mean(w),sd=std(w),z=sd?(cur-m)/sd:null;return{ratio:cur,z}}
+function drawLine(canvas, rows, key, opts={}){
+ const ctx=canvas.getContext('2d'),w=canvas.clientWidth,h=canvas.clientHeight,dpr=window.devicePixelRatio||1;canvas.width=w*dpr;canvas.height=h*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
+ let pts=rows.map((r,i)=>({x:i,y:+r[key]})).filter(p=>Number.isFinite(p.y)&&p.y>0);if(!pts.length){ctx.fillStyle='#93a4bf';ctx.font='12px sans-serif';ctx.fillText('暂无数据：请先运行数据更新脚本',20,32);return}
+ let ys=pts.map(p=>p.y),ymin=Math.min(...ys),ymax=Math.max(...ys);if(ymin===ymax){ymin-=1;ymax+=1}let pad=38;
+ ctx.strokeStyle='#2b3a57';ctx.lineWidth=1;for(let k=0;k<5;k++){let y=pad+(h-2*pad)*k/4;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-pad,y);ctx.stroke()}
+ if(opts.avg!=null&&Number.isFinite(+opts.avg)){let y=h-pad-(h-2*pad)*(opts.avg-ymin)/(ymax-ymin);if(y>=pad&&y<=h-pad){ctx.strokeStyle='#f1c65b';ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-pad,y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#f1c65b';ctx.fillText('月均',w-pad-28,y-5)}}
+ ctx.strokeStyle=opts.color||'#66b3ff';ctx.lineWidth=2;ctx.beginPath();pts.forEach((p,j)=>{let x=pad+(w-2*pad)*p.x/(rows.length-1||1);let y=h-pad-(h-2*pad)*(p.y-ymin)/(ymax-ymin);j?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();
+ ctx.fillStyle='#93a4bf';ctx.font='10px sans-serif';ctx.fillText(fnum(ymax,opts.dec||0),3,pad+3);ctx.fillText(fnum(ymin,opts.dec||0),3,h-pad+3);
+}
+function table(rows,cols,n=30){let x=(rows||[]).slice(-n).reverse();return `<table><thead><tr>${cols.map(c=>`<th>${c[0]}</th>`).join('')}</tr></thead><tbody>${x.map(r=>`<tr>${cols.map(c=>`<td>${c[2]?c[2](r[c[1]]):(r[c[1]]??'—')}</td>`).join('')}</tr>`).join('')}</tbody></table>`}
+
+
+// ========================= 综合因子层 =========================
+function safeDate(v){return v?String
