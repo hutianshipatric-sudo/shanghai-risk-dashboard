@@ -1,0 +1,117 @@
+div>
+ <div class="gloss-item"><b>4. 发布滞后必须真实</b><div>PMI、COT、库存周报等只能在实际发布日期之后进入模型，不能按数据所属月份提前使用。</div></div>
+ <div class="gloss-item"><b>5. 最终看毛利率误差</b><div>即使价格预测看起来不错，只要误差足以吞掉项目利润安全垫，就不能作为报价核心依据。</div></div>
+ <div class="gloss-item"><b>6. 数据源必须稳定</b><div>接口经常失效、口径不明确或需要人为解释的数据，只能作为观察项，不能自动驱动报价。</div></div>
+ </div>`}
+function render(tab){if(tab==='cu')renderCU();else if(tab==='au'||tab==='ag')renderMetal(tab);else if(tab==='factors')renderFactors();else if(tab==='faq')renderFAQ();else renderMethod()}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));b.classList.add('active');render(b.dataset.tab)});
+function sinaVarName(symbol){return '__SINA_'+symbol.replace(/[^A-Za-z0-9_]/g,'_')+'_'+Date.now()+'_'+Math.floor(Math.random()*1e6)}
+function loadSinaDaily(symbol){
+ return new Promise((resolve,reject)=>{
+  const vn=sinaVarName(symbol);
+  const now=new Date();
+  const type=`${now.getFullYear()}_${String(now.getMonth()+1).padStart(2,'0')}_${String(now.getDate()).padStart(2,'0')}`;
+  const sc=document.createElement('script');
+  const timer=setTimeout(()=>{try{sc.remove()}catch(e){};reject(new Error(symbol+' 请求超时'))},12000);
+  sc.src=`https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20${vn}=/InnerFuturesNewService.getDailyKLine?symbol=${encodeURIComponent(symbol)}&type=${encodeURIComponent(type)}`;
+  sc.async=true;
+  sc.onload=()=>{
+   clearTimeout(timer);
+   try{
+    const raw=window[vn];
+    delete window[vn]; sc.remove();
+    if(!Array.isArray(raw)||!raw.length) throw new Error(symbol+' 返回空数据');
+    const rows=raw.map(a=>({date:String(a[0]),open:+a[1],high:+a[2],low:+a[3],close:+a[4],volume:+a[5],open_interest:+a[6],hold:+a[6],settle:(Number.isFinite(+a[7])&&(+a[7])>0)?+a[7]:null}))
+      .filter(r=>r.date&&Number.isFinite(r.close)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    resolve(rows);
+   }catch(e){reject(e)}
+  };
+  sc.onerror=()=>{clearTimeout(timer);try{sc.remove()}catch(e){};reject(new Error(symbol+' 网络请求失败'))};
+  document.head.appendChild(sc);
+ });
+}
+function ymSymbol(prefix,offset=0){
+ const d=new Date(); d.setMonth(d.getMonth()+offset);
+ return prefix+String(d.getFullYear()).slice(-2)+String(d.getMonth()+1).padStart(2,'0');
+}
+function monthlyFromContinuous(rows){
+ const mp={};
+ (rows||[]).forEach(r=>{if(!r.date)return;let v=validPrice(r.settle)?+r.settle:null;if(v==null)return;let m=String(r.date).slice(0,7);(mp[m]||(mp[m]=[])).push(v)});
+ return Object.keys(mp).sort().map(m=>({month:m,front_mean_settle:mean(mp[m]),front_obs:mp[m].length,calendar_mean_settle:mean(mp[m]),calendar_obs:mp[m].length,front_vs_calendar_diff:0,front_vs_calendar_diff_pct:0}));
+}
+function copperDailyFromCu0(rows){
+ return (rows||[]).map(r=>({date:r.date,front_symbol:'CU0',front_settle:r.settle,front_close:r.close,front_volume:r.volume,front_open_interest:r.open_interest,second_front_symbol:null,second_front_settle:null,second_front_close:null,second_front_volume:null,second_front_open_interest:null,front_second_spread:null,front_second_spread_pct:null,calendar_symbol:'CU0',calendar_settle:r.settle,calendar_close:r.close,calendar_volume:r.volume,calendar_open_interest:r.open_interest}));
+}
+function mergeCurrentContracts(base,c0,c1,c2){
+ const by={}; (base||[]).forEach(r=>by[r.date]={...r});
+ const m0=ymSymbol('CU',0),m1=ymSymbol('CU',1),m2=ymSymbol('CU',2);
+ const map1=Object.fromEntries((c1||[]).map(r=>[r.date,r]));
+ const map2=Object.fromEntries((c2||[]).map(r=>[r.date,r]));
+ (c0||[]).forEach(r=>{
+  const s1=map1[r.date],s2=map2[r.date];
+  by[r.date]={date:r.date,front_symbol:m0,front_settle:r.settle,front_close:r.close,front_volume:r.volume,front_open_interest:r.open_interest,
+   second_front_symbol:s1?m1:(s2?m2:null),second_front_settle:s1?s1.settle:(s2?s2.settle:null),second_front_close:s1?s1.close:(s2?s2.close:null),second_front_volume:s1?s1.volume:(s2?s2.volume:null),second_front_open_interest:s1?s1.open_interest:(s2?s2.open_interest:null),
+   calendar_symbol:m0,calendar_settle:r.settle,calendar_close:r.close,calendar_volume:r.volume,calendar_open_interest:r.open_interest};
+  if(validPrice(by[r.date].front_settle)&&validPrice(by[r.date].second_front_settle)){
+   by[r.date].front_second_spread=+by[r.date].front_settle-(+by[r.date].second_front_settle);
+   by[r.date].front_second_spread_pct=by[r.date].front_second_spread/(+by[r.date].second_front_settle);
+  }
+ });
+ // If current month contract stopped trading, use next month as front for later dates.
+ (c1||[]).forEach(r=>{
+  const month=String(r.date).slice(0,7),cur=new Date().toISOString().slice(0,7);
+  if(month!==cur)return;
+  const existing=by[r.date];
+  if(!existing||existing.front_symbol==='CU0'){
+   const s2=map2[r.date];
+   by[r.date]={date:r.date,front_symbol:m1,front_settle:r.settle,front_close:r.close,front_volume:r.volume,front_open_interest:r.open_interest,
+    second_front_symbol:s2?m2:null,second_front_settle:s2?s2.settle:null,second_front_close:s2?s2.close:null,second_front_volume:s2?s2.volume:null,second_front_open_interest:s2?s2.open_interest:null,
+    calendar_symbol:null,calendar_settle:null,calendar_close:null,calendar_volume:null,calendar_open_interest:null};
+   if(s2&&validPrice(r.settle)&&validPrice(s2.settle)){by[r.date].front_second_spread=+r.settle-(+s2.settle);by[r.date].front_second_spread_pct=by[r.date].front_second_spread/(+s2.settle)}
+  }
+ });
+ return Object.values(by).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+}
+function setStatus(msg,kind='ok'){
+ let w=document.getElementById('warning'); w.style.display='block';
+ w.style.borderColor=kind==='ok'?'#2d765c':'#875c39'; w.style.background=kind==='ok'?'rgba(63,185,134,.12)':'rgba(255,179,71,.12)';
+ w.textContent=msg;
+}
+async function loadOnlineFallback(){
+ const hasLocal=(D.cu0&&D.cu0.length)||(D.copper_daily&&D.copper_daily.length);
+ if(hasLocal){
+  document.getElementById('generated').textContent=D.generated_at?`本地缓存数据生成时间：${D.generated_at}`:'已加载本地缓存数据';
+  if(D.warning)setStatus(D.warning,'warn');
+  render('cu'); return;
+ }
+ setStatus('正在从新浪期货日线接口加载 CU / AU / AG 数据，请稍候…','warn');
+ document.getElementById('generated').textContent='在线数据加载中…';
+ try{
+  const [cu0,au0,ag0,cuCur,cuNext,cuNext2]=await Promise.all([
+   loadSinaDaily('CU0'),loadSinaDaily('AU0'),loadSinaDaily('AG0'),
+   loadSinaDaily(ymSymbol('CU',0)).catch(()=>[]),
+   loadSinaDaily(ymSymbol('CU',1)).catch(()=>[]),
+   loadSinaDaily(ymSymbol('CU',2)).catch(()=>[])
+  ]);
+  D.cu0=cu0; D.au0=au0; D.ag0=ag0;
+  D.copper_daily=mergeCurrentContracts(copperDailyFromCu0(cu0),cuCur,cuNext,cuNext2);
+  D.copper_monthly=monthlyFromContinuous(D.copper_daily);
+  D.generated_at=new Date().toLocaleString('zh-CN');
+  D.warning=null;
+  setStatus('在线数据已加载：行情展示来自新浪期货日线接口。CU0/AU0/AG0为连续合约研究口径；铜的当前月具体合约会优先用于本月观察。正式合同结算仍应以SHFE/SGE/合同指定白银基准为准。','ok');
+  document.getElementById('generated').textContent=`在线数据加载时间：${D.generated_at}`;
+  let t=document.querySelector('.tab.active')?.dataset.tab||'cu'; render(t);
+ }catch(e){
+  console.error(e);
+  setStatus('在线数据加载失败：'+e.message+'。可能是公司网络、浏览器安全策略或新浪访问限制。此时请使用文件夹中的“本地更新版”脚本生成缓存数据。','warn');
+  document.getElementById('generated').textContent='未加载到行情数据';
+  render('cu');
+ }
+}
+document.getElementById('generated').textContent='准备加载数据…';
+render('cu');
+loadOnlineFallback().then(()=>loadExternalFactors()).catch(()=>loadExternalFactors());
+window.addEventListener('resize',()=>{let t=document.querySelector('.tab.active')?.dataset.tab||'cu';render(t)});
+</script>
+</body>
+</html>
