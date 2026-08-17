@@ -1,0 +1,58 @@
+h;
+ let tone=pos>neg?'偏支撑':neg>pos?'偏压制':'多空均衡';
+ return {html:cards.join(''),avail,total:cards.length,pos,neg,tone};
+}
+function factorSection(kind){let s=factorSummary(kind);return `<div class="section-title">基本面 / 跨市场因子</div><div class="factor-score"><div class="score-box"><h4>当前可用因子</h4><div class="score-big">${s.avail}/${s.total}</div><div class="score-small">自动源失败时会显示“—”，不会用0替代。可运行一键更新脚本补充缓存。</div></div><div class="score-box"><h4>因子方向汇总</h4><div class="score-big">${s.tone}</div><div class="score-small">偏支撑 ${s.pos} 项 / 偏压制 ${s.neg} 项。这里只做解释层，不直接输出买卖信号。</div></div><div class="score-box"><h4>模型准入状态</h4><div class="score-big">待OOS验证</div><div class="score-small">只有在“剩余月均价”样本外回测中稳定优于 No-change 基准，才允许进入最终毛利率预测。</div></div></div><div class="factor-summary">${s.html}</div>`}
+
+async function fetchTimeout(url,opts={},ms=12000){let c=new AbortController(),t=setTimeout(()=>c.abort(),ms);try{return await fetch(url,{...opts,signal:c.signal})}finally{clearTimeout(t)}}
+function metricRowsFromYahoo(result,convert=1){let ts=result?.timestamp||[],q=result?.indicators?.quote?.[0]?.close||[];let rows=[];for(let i=0;i<ts.length;i++){if(Number.isFinite(q[i]))rows.push({date:new Date(ts[i]*1000).toISOString().slice(0,10),value:q[i]*convert})}return rows}
+async function loadYahoo(symbol,convert=1){let u=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1y&interval=1d&events=history`;let r=await fetchTimeout(u);if(!r.ok)throw new Error(symbol+' Yahoo '+r.status);let j=await r.json(),res=j?.chart?.result?.[0];if(!res)throw new Error(symbol+' Yahoo空');let m=metricFromRows(metricRowsFromYahoo(res,convert));return {...m,status:'ok',source_type:'auto',source:'Yahoo Finance'}}
+async function loadFred(id){let u=`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(id)}`;let r=await fetchTimeout(u);if(!r.ok)throw new Error(id+' FRED '+r.status);let tx=await r.text(),rows=[];tx.trim().split(/\r?\n/).slice(1).forEach(line=>{let a=line.split(',');let v=+a[1];if(Number.isFinite(v))rows.push({date:a[0],value:v})});let m=metricFromRows(rows);return {...m,status:'ok',source_type:'auto',source:'FRED'}}
+async function loadCOT(keyword){let where=encodeURIComponent(`market_and_exchange_names like '%${keyword}%'`);let fields='report_date_as_yyyy_mm_dd,market_and_exchange_names,open_interest_all,noncomm_positions_long_all,noncomm_positions_short_all';let u=`https://publicreporting.cftc.gov/resource/6dca-aqww.json?$select=${fields}&$where=${where}&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=20`;let r=await fetchTimeout(u);if(!r.ok)throw new Error('CFTC '+r.status);let j=await r.json();if(!Array.isArray(j)||!j.length)throw new Error('CFTC空');let x=j.map(z=>({date:String(z.report_date_as_yyyy_mm_dd).slice(0,10),net:(+z.noncomm_positions_long_all||0)-(+z.noncomm_positions_short_all||0),oi:+z.open_interest_all||null,name:z.market_and_exchange_names})).sort((a,b)=>a.date.localeCompare(b.date));let l=last(x),p4=x.length>4?x[x.length-5]:null;return {net:l.net,oi:l.oi,date:l.date,net_change_4w:p4?l.net-p4.net:null,status:'ok',source_type:'auto',source:'CFTC Legacy Futures Only',name:l.name}}
+function ymd(d){return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')}
+async function loadShfeReport(kind,field){
+ let found=[];for(let back=0;back<28&&found.length<2;back++){let d=new Date();d.setDate(d.getDate()-back);let ds=ymd(d);if(found.some(x=>x.date===ds))continue;let urls=[`https://www.shfe.com.cn/data/tradedata/future/dailydata/${ds}${kind}.dat`,`https://www.shfe.com.cn/data/dailydata/${ds}${kind}.dat`];let j=null;for(let u of urls){try{let r=await fetchTimeout(u,{},5000);if(r.ok){j=await r.json();if(j?.o_cursor)break}}catch(e){}}
+  if(!j?.o_cursor)continue;let rows=j.o_cursor.filter(z=>String(z.VARNAME||'').split('$')[0].includes('铜')&&finite(z[field]));if(!rows.length)continue;
+  let totalRows=rows.filter(z=>/合计|总计/.test(String(z.WHABBRNAME||'').split('$')[0])&&(+z[field])>0),total=null;if(totalRows.length)total=Math.max(...totalRows.map(z=>+z[field]));
+  if(!(total>0)){let by={};for(let z of rows){let wh=String(z.WHABBRNAME||'').split('$')[0];if(/合计|总计/.test(wh))continue;let v=+z[field];if(v<0)continue;by[wh]=Math.max(by[wh]??-Infinity,v)}total=Object.values(by).filter(Number.isFinite).reduce((a,b)=>a+b,0)}if(total>0)found.push({date:ds.slice(0,4)+'-'+ds.slice(4,6)+'-'+ds.slice(6),value:total});
+ }
+ if(!found.length)throw new Error('SHFE '+kind+' 无可用数据');found.sort((a,b)=>a.date.localeCompare(b.date));let l=last(found),p=found.length>1?found[found.length-2]:null;return {value:l.value,date:l.date,change:p?l.value-p.value:null,change_pct:p&&p.value?l.value/p.value-1:null,status:'ok',source_type:'auto',source:'SHFE'};
+}
+function cachedOr(obj,key){let x=obj?.[key];return x&&(x.status==='ok'||x.status==='warn')?x:null}
+async function loadExternalFactors(force=false){
+ let tasks=[];const set=(k,p)=>tasks.push(p.then(v=>{F[k]=v}).catch(e=>{if(!F[k])F[k]={status:'bad',source_type:'wait',error:e.message};console.warn(k,e)}));
+ if(force||!cachedOr(F,'usdcny'))set('usdcny',loadYahoo('CNY=X'));
+ if(force||!cachedOr(F,'comex_copper'))set('comex_copper',loadYahoo('HG=F',2204.6226218).then(x=>({...x,usd_t:x.value,chg5:x.chg5,chg20:x.chg20})));
+ if(force||!cachedOr(F,'dxy'))set('dxy',loadYahoo('DX-Y.NYB'));
+ if(force||!cachedOr(F,'real_yield'))set('real_yield',loadFred('DFII10').then(x=>({...x,change20:x.rows?.length>20?x.value-x.rows[x.rows.length-21].value:null})));
+ if(force||!cachedOr(F,'indpro'))set('indpro',loadFred('INDPRO').then(x=>{let y=x.rows?.length>12?x.value/x.rows[x.rows.length-13].value-1:null;return {...x,yoy:y}}));
+ if(force||!cachedOr(F,'cot_gold'))set('cot_gold',loadCOT('GOLD'));
+ if(force||!cachedOr(F,'cot_silver'))set('cot_silver',loadCOT('SILVER'));
+ if(force||!cachedOr(F,'shfe_receipt'))set('shfe_receipt',loadShfeReport('dailystock','WRTWGHTS'));
+ if(force||!cachedOr(F,'shfe_stock'))set('shfe_stock',loadShfeReport('weeklystock','WHSTOCKS'));
+ await Promise.allSettled(tasks);F.generated_at=new Date().toLocaleString('zh-CN');let t=document.querySelector('.tab.active')?.dataset.tab||'cu';render(t);
+}
+function refreshFactors(){let w=document.getElementById('warning');if(w){w.style.display='block';w.textContent='正在刷新外部因子…部分官方网站可能因浏览器跨域策略无法直接访问；失败时请运行文件夹内的一键更新数据.py。'}loadExternalFactors(true)}
+// =============================================================
+
+function buildIndicators(rows,key,kind){
+ let sr=settledRows(rows,key),l=last(sr),p=l?+l[key]:null,p1=nthFromEnd(sr,1),p5=nthFromEnd(sr,5),p20=nthFromEnd(sr,20);
+ let ret1=p1&&validPrice(p1[key])?pct(p,p1[key]):null,ret5=p5&&validPrice(p5[key])?pct(p,p5[key]):null,ret20=p20&&validPrice(p20[key])?pct(p,p20[key]):null;
+ let ma20=movingAvg(sr,key,20),ma60=movingAvg(sr,key,60),sd20=rollingStd(sr,key,20),z20=sd20&&ma20?(p-ma20)/sd20:null;
+ let rs=rsi(sr,key,14),vol=annualVol(sr,key,20),vp=volPercentile(sr,key),ms=monthStats(rows,key);
+ let prev20=sr.slice(-21,-1).map(r=>+r[key]).filter(v=>Number.isFinite(v)&&v>0),high20=prev20.length?Math.max(...prev20):null,low20=prev20.length?Math.min(...prev20):null;
+ let breakout=high20!=null&&p>high20?'up':(low20!=null&&p<low20?'down':'none');
+ let vl=l&&finite(l.volume)?+l.volume:(l&&finite(l.front_volume)?+l.front_volume:null),vavg=mean(sr.slice(-21,-1).map(r=>finite(r.volume)?+r.volume:(finite(r.front_volume)?+r.front_volume:NaN)).filter(Number.isFinite)),vr=vavg&&vl?vl/vavg:null;
+ let oi=l&&finite(l.open_interest)?+l.open_interest:(l&&finite(l.front_open_interest)?+l.front_open_interest:null);
+ let oi5row=nthFromEnd(sr,5),oi5=oi5row?(finite(oi5row.open_interest)?+oi5row.open_interest:(finite(oi5row.front_open_interest)?+oi5row.front_open_interest:null)):null;
+ let oichg=oi!=null&&oi5?oi/oi5-1:null;
+ let score=0,reasons=[];
+ if(p!=null&&ma20!=null){if(p>ma20){score+=0.7;reasons.push('价格在20日均线上方')}else{score-=0.7;reasons.push('价格在20日均线下方')}}
+ if(ma20!=null&&ma60!=null){if(ma20>ma60){score+=0.8;reasons.push('中短期趋势偏强')}else{score-=0.8;reasons.push('中短期趋势偏弱')}}
+ if(ret5!=null){let sig=dailyReturns(sr,key,20),s=std(sig);let th=s?Math.max(0.01,s*Math.sqrt(5)):0.02;if(ret5>th){score+=0.8;reasons.push('近5日涨幅明显')}if(ret5<-th){score-=0.8;reasons.push('近5日跌幅明显')}}
+ if(breakout==='up'){score+=0.9;reasons.push('突破近20日高位')}if(breakout==='down'){score-=0.9;reasons.push('跌破近20日低位')}
+ if(ret5!=null&&oichg!=null){if(ret5>0&&oichg>0){score+=0.6;reasons.push('上涨同时增仓，趋势获得资金确认')}if(ret5<0&&oichg>0){score-=0.6;reasons.push('下跌同时增仓，空头压力较强')}if(ret5>0&&oichg<0)reasons.push('上涨但减仓，需防范空头回补式上涨');if(ret5<0&&oichg<0)reasons.push('下跌但减仓，可能是多头离场而非新空建立')}
+ let trend=score>=1.6?'偏强':score<=-1.6?'偏弱':'震荡/中性';
+ let riskPts=0;if(vp!=null&&vp>=0.8)riskPts+=2;else if(vp!=null&&vp>=0.6)riskPts+=1;if(z20!=null&&Math.abs(z20)>=2)riskPts+=2;else if(z20!=null&&Math.abs(z20)>=1.5)riskPts+=1;if(vr!=null&&vr>=1.5)riskPts+=1;if(breakout!=='none')riskPts+=1;
+ let risk=riskPts>=4?'高':riskPts>=2?'中':'低';
+ return{p,ret1,ret5,ret20,ma20
