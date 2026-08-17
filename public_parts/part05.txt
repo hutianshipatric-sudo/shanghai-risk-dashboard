@@ -1,0 +1,75 @@
+,ma60,z20,rsi:rs,vol,volPct:vp,month:ms,breakout,volumeRatio:vr,oi,oiChg5:oichg,score,trend,risk,reasons};
+}
+function alertCards(ind,kind,extra={}){
+ let arr=[],dailyStd=ind.vol!=null?ind.vol/Math.sqrt(252):null;
+ if(ind.ret1!=null&&dailyStd!=null&&Math.abs(ind.ret1)>Math.max(0.015,1.8*dailyStd))arr.push({level:'red',name:'单日异常波动',desc:`最新单日变化 ${fpct(ind.ret1)}，超过近期波动率对应的异常阈值。短期价格风险正在放大。`});
+ if(ind.breakout==='up')arr.push({level:'yellow',name:'向上突破预警',desc:'价格突破近20个交易日高位。若同时成交量/持仓上升，趋势可信度更高；若量能不足，需防范假突破。'});
+ if(ind.breakout==='down')arr.push({level:'red',name:'向下突破预警',desc:'价格跌破近20个交易日低位。对采购方有利于成本，但若库存/基本面同步恶化，可能意味着趋势性下行。'});
+ if(ind.volPct!=null&&ind.volPct>=0.8)arr.push({level:'red',name:'高波动环境',desc:`20日年化波动率约 ${fpct(ind.vol)}，处于近一年较高分位（约 ${fpct(ind.volPct,0)}）。建议扩大报价安全垫并提高套保关注度。`});
+ if(ind.z20!=null&&Math.abs(ind.z20)>=2)arr.push({level:'yellow',name:'价格偏离均值较大',desc:`价格相对20日均线的Z-score约 ${ind.z20.toFixed(2)}。这既可能代表强趋势，也可能意味着短期过度延伸，需结合持仓判断。`});
+ if(ind.month&&ind.month.avg&&ind.p){let dev=ind.p/ind.month.avg-1;if(Math.abs(dev)>=0.02)arr.push({level:'yellow',name:'现价明显偏离本月已实现均价',desc:`现价较本月累计均价 ${dev>=0?'高':'低'} ${fpct(Math.abs(dev))}。合同按月均价结算，所以重点是剩余月份能否把均价继续向当前价格方向拉动。`})}
+ if(extra.termSpread!=null&&Math.abs(extra.termSpreadPct||0)>=0.003)arr.push({level:'blue',name:'期限结构出现明显价差',desc:`近月与次近月价差约 ${fnum(extra.termSpread,0)}（${fpct(extra.termSpreadPct)}）。近月更贵通常代表近端偏紧，远月更贵则更多体现库存/持有成本或供应宽松。`});
+ if(!arr.length)arr.push({level:'green',name:'暂无显著技术性预警',desc:'当前价格、波动和量仓指标未触发主要阈值。仍需关注月均价路径和基本面数据变化。'});
+ return `<div class="alerts">${arr.map(a=>`<div class="alert ${a.level}"><div class="top"><div class="name"><span class="dot ${a.level==='red'?'red':a.level==='yellow'?'yellow':a.level==='green'?'green':'blue'}"></span>${a.name}</div><span class="badge ${a.level}">${a.level==='red'?'高关注':a.level==='yellow'?'关注':a.level==='green'?'正常':'结构'}</span></div><div class="desc">${a.desc}</div></div>`).join('')}</div>`;
+}
+function executiveText(ind,kind,extra={}){
+ let priceVsMonth=ind.month&&ind.month.avg&&ind.p?ind.p/ind.month.avg-1:null,lock=ind.month?.lock;
+ let trendSentence=`当前市场状态判断为“${ind.trend}”，风险等级为“${ind.risk}”。`;
+ let monthSentence=priceVsMonth==null?'本月累计均价尚无足够数据。':`最新价格较本月已实现均价${priceVsMonth>=0?'高':'低'} ${fpct(Math.abs(priceVsMonth))}，本月月均价估算锁定进度约 ${fpct(lock,0)}。`;
+ let meaning='';
+ if(kind==='cu'){
+  meaning=ind.trend==='偏强'?'对采购/报价而言，铜价剩余月份上行风险偏高，报价安全垫不宜过窄；如果已签销售端价格尚未同步锁定，应重点检查价格敞口。':ind.trend==='偏弱'?'对采购/报价而言，短期铜价压力偏下，有利于采购成本，但不要把单日下跌直接当作最终月均价下跌；越接近月底，已实现均价的约束越强。':'铜价暂未形成明确单边趋势。此时更应关注月均价、库存/仓单、近远月价差和持仓，而不是追逐单日波动。';
+ }else if(kind==='au'){
+  meaning='黄金具有避险与货币属性，技术信号只用于判断市场状态。正式判断仍应结合美元、美国实际利率和风险事件；本页AU0目前属于SHFE期货研究代理，并非合同Au99.95最终计价基准。';
+ }else{
+  meaning='白银兼具贵金属与工业金属属性，因此既受黄金逻辑影响，也受工业周期影响。需要同时观察金银比、与铜的联动和自身波动率；本页AG0属于研究代理。';
+ }
+ return{trendSentence,monthSentence,meaning};
+}
+function oiNarrative(ind){if(ind.ret5==null||ind.oiChg5==null)return '持仓数据不足，暂不能判断资金是否确认趋势。';if(ind.ret5>0&&ind.oiChg5>0)return '近5日价格上涨且持仓增加：通常理解为新资金跟随上涨，趋势确认度较高。';if(ind.ret5<0&&ind.oiChg5>0)return '近5日价格下跌且持仓增加：通常理解为新空资金增加，价格压力偏强。';if(ind.ret5>0&&ind.oiChg5<0)return '价格上涨但持仓下降：更像空头回补或存量资金退出，趋势持续性要打折。';return '价格下跌且持仓下降：更多体现多头离场，是否继续下跌需要新空头/基本面确认。'}
+function scoreClass(x){return x==='偏强'?'good':x==='偏弱'?'bad':'warn'}
+function riskClass(x){return x==='高'?'bad':x==='中'?'warn':'good'}
+
+function renderCU(){
+ let daily=D.copper_daily||[],monthly=D.copper_monthly||[],l=lastValid(daily,'front_settle'),key='front_settle',ind=buildIndicators(daily,key,'cu');
+ let m=ind.month,curFront=m?.avg,curCal=l?avg(daily.filter(r=>String(r.date).slice(0,7)===String(l.date).slice(0,7)&&validPrice(r.calendar_settle)),'calendar_settle'):null;
+ let spreadRow=[...daily].reverse().find(r=>validPrice(r.front_settle)&&validPrice(r.second_front_settle)&&finite(r.front_second_spread));
+ let termSpread=spreadRow?+spreadRow.front_second_spread:null,termSpreadPct=spreadRow&&validPrice(spreadRow.second_front_settle)?termSpread/(+spreadRow.second_front_settle):null;
+ let ext={termSpread,termSpreadPct};let e=executiveText(ind,'cu',ext);
+ document.getElementById('content').innerHTML=`
+ <div class="executive">
+  <div class="exec-card ${scoreClass(ind.trend)}"><h3>一句话市场判断</h3><div class="exec-main text-${scoreClass(ind.trend)}">${ind.trend}</div><div class="exec-text">${e.trendSentence}<br>${ind.reasons.slice(0,3).join('；')||'暂无足够数据'}。</div></div>
+  <div class="exec-card info"><h3>月均价与合同含义</h3><div class="exec-main">${fnum(curFront,0)}</div><div class="exec-text">本月累计 Front 均价（元/吨）。${e.monthSentence}</div></div>
+  <div class="exec-card ${riskClass(ind.risk)}"><h3>对报价 / 采购的含义</h3><div class="exec-main text-${riskClass(ind.risk)}">${ind.risk}风险</div><div class="exec-text">${e.meaning}</div></div>
+ </div>
+ <div class="analysis-box" style="margin-bottom:14px"><h4>数据口径提示</h4><p>当日交易尚未结束或结算价尚未发布时，数据源可能返回结算价 0。系统已将 ≤0 的结算价视为“未发布”并自动排除，不再参与近5日涨跌、波动率和月均价计算。月均价只统计已经发布的正数结算价。</p></div>
+<div class="kpis">
+  <div class="kpi"><div class="label">最新 Front 结算价</div><div class="value">${fnum(ind.p,0)}</div><div class="sub">${l?.front_symbol||'—'} · 元/吨</div></div>
+  <div class="kpi"><div class="label">本月累计均价</div><div class="value">${fnum(curFront,0)}</div><div class="sub">合同核心观察值</div></div>
+  <div class="kpi"><div class="label">月均价锁定进度（估算）</div><div class="value">${fpct(m?.lock,0)}</div><div class="sub">已实现 ${m?.obs||0} 个交易日 / 估算 ${m?.est||'—'} 个工作日</div></div>
+  <div class="kpi"><div class="label">近5日变化</div><div class="value ${ind.ret5>=0?'good':'bad'}">${fpct(ind.ret5)}</div><div class="sub">趋势不是最终月均价</div></div>
+  <div class="kpi"><div class="label">20日年化波动率</div><div class="value ${riskClass(ind.risk)}">${fpct(ind.vol)}</div><div class="sub">近一年分位约 ${fpct(ind.volPct,0)}</div></div>
+  <div class="kpi"><div class="label">近月 - 次近月</div><div class="value ${termSpread>0?'good':termSpread<0?'warn':''}">${fnum(termSpread,0)}</div><div class="sub">${l?.front_symbol||'—'} vs ${l?.second_front_symbol||'—'} · ${termSpread>0?'近端偏紧/Backwardation':'Contango或近端不紧'}</div></div>
+ </div>
+ <div class="grid">
+  <div class="panel"><h3>沪铜 Front 合约每日结算价</h3><div class="subtitle">黄色虚线为本月已实现均价。看“现价离月均多远”比只看今天涨跌更重要。</div><div class="chart-wrap"><canvas id="cuDaily"></canvas></div></div>
+  <div class="panel"><h3>价格预警</h3><div class="subtitle">阈值结合近期波动率、突破、月均偏离和期限结构自动触发。</div>${alertCards(ind,'cu',ext)}</div>
+ </div>
+ <div class="grid equal" style="margin-top:14px">
+  <div class="panel"><h3>量价与持仓怎么解释</h3><div class="analysis-box"><h4>当前判断</h4><p>${oiNarrative(ind)}</p><p>近5日持仓变化：<b>${fpct(ind.oiChg5)}</b>；最新成交量/20日平均成交量：<b>${ind.volumeRatio?ind.volumeRatio.toFixed(2)+'x':'—'}</b>。</p></div><div class="analysis-box"><h4>领导需要知道</h4><p>期货价格上涨本身不等于“需求一定变强”。如果上涨同时增仓，趋势通常更有资金确认；如果上涨但减仓，可能只是空头回补，持续性相对弱。</p></div></div>
+  <div class="panel"><h3>月均价路径分析</h3><div class="analysis-box"><p>当前价格相对本月累计均价：<b>${ind.p&&curFront?fpct(ind.p/curFront-1):'—'}</b>。</p><p>估算已有 <b>${fpct(m?.lock,0)}</b> 的月度交易日完成，剩余价格对最终月均价的影响权重约 <b>${fpct(m?.remaining,0)}</b>。因此越接近月底，单日行情对最终合同价格的影响越小。</p><p>本项“锁定进度”按工作日近似，未精确扣除中国节假日，仅用于管理层理解月均价的平滑效应。</p></div></div>
+ </div>
+ <div class="grid" style="margin-top:14px"><div class="panel"><h3>历史月均结算价</h3><div class="chart-wrap"><canvas id="cuMonthly"></canvas></div></div><div class="panel"><h3>铜价分析理论（管理层版）</h3><div class="analysis-box"><p><b>1. 月均锚定：</b>合同按月均价结算，所以模型优先判断剩余月份能否显著改变已实现均价。</p><p><b>2. 期限结构：</b>近月高于远月（Backwardation）通常说明近端现货/交割资源更紧；远月高于近月（Contango）则更偏库存/资金持有结构。</p><p><b>3. 价格×持仓：</b>用来判断趋势是新资金推动还是存量仓位退出。</p><p><b>4. 波动率：</b>不是判断涨跌方向，而是决定报价安全垫和套保必要性。</p></div></div></div>
+ ${factorSection('cu')}
+ <div class="table-panel"><h3>最近交易数据</h3>${table(daily,[['日期','date'],['Front','front_symbol'],['Front结算','front_settle',v=>fnum(v,0)],['次近月','second_front_symbol'],['次近月结算','second_front_settle',v=>fnum(v,0)],['近-次价差','front_second_spread',v=>fnum(v,0)],['成交量','front_volume',v=>fnum(v,0)],['持仓量','front_open_interest',v=>fnum(v,0)]],40)}</div>`;
+ drawLine(document.getElementById('cuDaily'),daily.slice(-260),key,{dec:0,avg:curFront});
+ drawLine(document.getElementById('cuMonthly'),monthly.slice(-60),'front_mean_settle',{dec:0,color:'#63d3a4'});
+}
+function renderMetal(kind){
+ let rows=D[kind+'0']||[],l=last(rows),key=priceKey(rows),ind=buildIndicators(rows,key,kind),name=kind==='au'?'黄金 AU0':'白银 AG0',unit=kind==='au'?'交易所期货口径':'交易所期货口径';
+ let e=executiveText(ind,kind),gs=gsRatioStats(),cross=kind==='ag'?alignReturns(rows,key,D.cu0||[],priceKey(D.cu0||[]),60):null;
+ let special=kind==='au'?`金银比：${fnum(gs.ratio,2)}；60日Z-score：${gs.z==null?'—':gs.z.toFixed(2)}。金银比极端时可用于观察贵金属内部相对强弱，但不能单独预测黄金。`:`金银比：${fnum(gs.ratio,2)}；白银与铜近60日收益相关性：${cross==null?'—':cross.toFixed(2)}。相关性升高时，白银的“工业金属属性”更值得重视。`;
+ document.getElementById('content').innerHTML=`
+ <div class="executive">
+  <div class="exec-card ${scoreClass(ind.trend)}"><h3>一句话市场判断</h3><div class="exec-main text-${scoreClass(ind.trend)}">${ind.trend}</div><div class="exec-text">${e.trendSentence}<br>${ind.reasons.slice(0,3).join('；')||'暂无足够数据'}。</div></div>
+  <div class="exec-card
