@@ -1,0 +1,68 @@
+(v).slice(0,10):'—'}
+function metricFromRows(rows, opts={}){
+ const x=(rows||[]).filter(r=>finite(r.value)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+ if(!x.length)return null; const l=last(x), n5=x.length>5?x[x.length-6]:null, n20=x.length>20?x[x.length-21]:null;
+ return {value:+l.value,date:l.date,chg5:n5?pct(l.value,n5.value):null,chg20:n20?pct(l.value,n20.value):null,rows:x};
+}
+function sourceType(x){return x?.source_type||'auto'}
+function sourceChip(x){let t=sourceType(x),cls=t==='manual'?'manual':t==='cache'?'auto':t==='wait'?'wait':'auto';let txt=t==='manual'?'手工':t==='cache'?'缓存':t==='wait'?'待接入':'自动';return `<span class="source-chip ${cls}">${txt}</span>`}
+function factorTone(direction){return direction>0?'pos':direction<0?'neg':'neutral'}
+function dirText(direction){return direction>0?'偏支撑':direction<0?'偏压制':'中性/观察'}
+function factorCard(name, value, sub, direction, desc, src, gate='待回测'){
+ const missing=value===null||value===undefined||value==='—'; let gcls=gate==='已通过'?'pass':gate==='未通过'?'fail':gate==='辅助'?'aux':'wait';
+ return `<div class="factor-card ${missing?'missing':factorTone(direction)}"><div class="fhead"><span class="fname">${name}</span>${sourceChip(src)}</div><div class="fvalue">${missing?'—':value}</div><div class="factor-line"><span>${missing?'暂无可用值':dirText(direction)}</span><span class="gate ${gcls}">${gate}</span>${sub?`<span>${sub}</span>`:''}</div><div class="fdesc">${desc}</div></div>`;
+}
+function directionFromChange(chg, inverse=false, threshold=0.002){if(chg==null)return 0;if(Math.abs(chg)<threshold)return 0;let d=chg>0?1:-1;return inverse?-d:d}
+function absChangeDirection(chg, inverse=false, threshold=0.1){if(chg==null)return 0;if(Math.abs(chg)<threshold)return 0;let d=chg>0?1:-1;return inverse?-d:d}
+function manualNum(k){let v=F.manual?.[k]; return (v===''||v===null||v===undefined||!Number.isFinite(+v))?null:+v}
+function saveManual(){
+ const keys=['tc_current','tc_prev','lme_copper','china_pmi']; const o={}; keys.forEach(k=>{let el=document.getElementById('m_'+k);if(el)o[k]=el.value});
+ F.manual=Object.assign({},F.manual||{},o); localStorage.setItem('METAL_RISK_MANUAL',JSON.stringify(F.manual)); let t=document.querySelector('.tab.active')?.dataset.tab||'factors';render(t);
+}
+function manualPanel(){return `<div class="panel" style="min-height:auto"><h3>手工/付费因子补充</h3><div class="subtitle">TC、LME官方价和中国PMI如没有稳定免费接口，可在这里录入。浏览器会保存在本机，不上传。</div><div class="manual-grid">
+ <div class="manual-item"><label>铜精矿 TC 当前（美元/干吨）</label><input id="m_tc_current" type="number" step="0.1" value="${F.manual?.tc_current??''}"></div>
+ <div class="manual-item"><label>铜精矿 TC 上期/4周前</label><input id="m_tc_prev" type="number" step="0.1" value="${F.manual?.tc_prev??''}"></div>
+ <div class="manual-item"><label>LME 铜现价（美元/吨，可选）</label><input id="m_lme_copper" type="number" step="1" value="${F.manual?.lme_copper??''}"></div>
+ <div class="manual-item"><label>中国制造业 PMI（可选）</label><input id="m_china_pmi" type="number" step="0.1" value="${F.manual?.china_pmi??''}"></div>
+ </div><button class="btn" onclick="saveManual()">保存手工因子</button><div class="manual-note">TC通常来自SMM/Fastmarkets等商业报价；本页不会用未经验证的免费网页数字冒充正式TC。PMI如录入，50以上代表制造业扩张、50以下代表收缩。</div></div>`}
+function dataHealth(){
+ const defs=[['SHFE仓单',F.shfe_receipt],['SHFE库存',F.shfe_stock],['USD/CNY',F.usdcny],['COMEX铜',F.comex_copper],['实际利率',F.real_yield],['DXY',F.dxy],['黄金COT',F.cot_gold],['白银COT',F.cot_silver],['工业周期',F.indpro]];
+ return defs.map(([n,x])=>`<div class="status-item"><b>${n}</b><div class="data-health"><span class="health-dot ${x?.status==='ok'?'ok':x?.status==='warn'?'warn':'bad'}"></span>${x?.status==='ok'?'已加载':x?.status==='warn'?'缓存/部分':'待接入或跨域受限'}</div><div>${x?.date?'最新：'+safeDate(x.date):'网页自动失败时可运行一键更新脚本'}</div></div>`).join('');
+}
+function copperFactorData(){
+ const sr=F.shfe_receipt, st=F.shfe_stock, fx=F.usdcny, hg=F.comex_copper;
+ const tc=manualNum('tc_current'),tcp=manualNum('tc_prev'),lme=manualNum('lme_copper');
+ const tcchg=(tc!=null&&tcp!=null&&tcp!==0)?tc/tcp-1:null;
+ let daily=D.copper_daily||[], l=lastValid(daily,'front_settle'), spread=l?.front_second_spread_pct;
+ let cards=[];
+ cards.push(factorCard('SHFE铜仓单',sr?.value!=null?fnum(sr.value,0)+' 吨':null,sr?.change_pct!=null?'较上期 '+fpct(sr.change_pct):'',directionFromChange(sr?.change_pct,true,0.01),'注册仓单更接近期货可交割供应。仓单下降通常说明可交割资源减少，对近端铜价偏支撑，但需结合库存与期限结构。',sr,'待回测'));
+ cards.push(factorCard('SHFE铜库存周报',st?.value!=null?fnum(st.value,0)+' 吨':null,st?.change_pct!=null?'周变化 '+fpct(st.change_pct):'',directionFromChange(st?.change_pct,true,0.01),'库存周报反映指定交割仓库库存。下降通常意味着显性库存收紧；上升则说明供应缓冲增加。',st,'待回测'));
+ cards.push(factorCard('USD/CNY',fx?.value!=null?fnum(fx.value,4):null,fx?.chg20!=null?'20日 '+fpct(fx.chg20):'',directionFromChange(fx?.chg20,false,0.005),'USD/CNY上行代表人民币走弱，通常抬高人民币计价金属价格，也可能提高进口原料成本；它不是单纯的利多/利空。',fx,'待回测'));
+ cards.push(factorCard('COMEX铜 HG',hg?.usd_t!=null?'$'+fnum(hg.usd_t,0)+'/吨':null,hg?.chg20!=null?'20日 '+fpct(hg.chg20):'',directionFromChange(hg?.chg20,false,0.015),'国际铜期货是外盘方向因子。与SHFE同向时趋势更容易获得跨市场确认；与国内背离时要关注汇率、进口窗口和国内供需。',hg,'待回测'));
+ cards.push(factorCard('铜精矿 TC',tc!=null?'$'+fnum(tc,1)+'/干吨':null,tcchg!=null?'较上期 '+fpct(tcchg):'',directionFromChange(tcchg,true,0.03),'TC下降通常表示矿端原料更紧、冶炼厂争夺精矿；TC上升则偏向原料宽松。TC是铜精矿贸易比单纯铜价更贴近业务的因子。',{source_type:'manual'},'待回测'));
+ cards.push(factorCard('近月-次近月',spread!=null?fpct(spread):null,l?.front_symbol&&l?.second_front_symbol?`${l.front_symbol} vs ${l.second_front_symbol}`:'',directionFromChange(spread,false,0.001),'Backwardation（近月更贵）常见于近端资源偏紧；Contango通常说明近端不紧或持有成本占主导。必须和库存/仓单一起看。',{source_type:'auto'},'待回测'));
+ if(lme!=null)cards.push(factorCard('LME铜（手工）','$'+fnum(lme,0)+'/吨','官方/付费口径',0,'用于补充COMEX之外的全球铜基准。若无稳定授权接口，本页仅接受手工输入，避免使用口径不明的数据。',{source_type:'manual'},'待回测'));
+ return cards;
+}
+function goldFactorData(){
+ const ry=F.real_yield, dx=F.dxy, fx=F.usdcny, cot=F.cot_gold, gs=gsRatioStats();let cards=[];
+ cards.push(factorCard('美国10Y实际利率',ry?.value!=null?fnum(ry.value,2)+'%':null,ry?.change20!=null?'20期变化 '+(ry.change20>=0?'+':'')+fnum(ry.change20,2)+'pct':'',absChangeDirection(ry?.change20,true,0.10),'黄金不生息，实际利率下降会降低持有黄金的机会成本，通常偏支撑；实际利率上行通常构成压力。',ry,'待回测'));
+ cards.push(factorCard('美元指数 DXY',dx?.value!=null?fnum(dx.value,2):null,dx?.chg20!=null?'20日 '+fpct(dx.chg20):'',directionFromChange(dx?.chg20,true,0.01),'国际黄金以美元定价，美元走弱通常有利黄金；但危机避险、央行购金等阶段可能削弱这种关系。',dx,'待回测'));
+ cards.push(factorCard('黄金 COT 非商业净仓',cot?.net!=null?fnum(cot.net,0)+' 手':null,cot?.net_change_4w!=null?'4周变化 '+fnum(cot.net_change_4w,0):'',absChangeDirection(cot?.net_change_4w,false,5000),'COT反映周度资金结构。净多增加说明投机资金更偏多；极端拥挤时也可能成为反向风险提示。',cot,'待回测'));
+ cards.push(factorCard('USD/CNY',fx?.value!=null?fnum(fx.value,4):null,fx?.chg20!=null?'20日 '+fpct(fx.chg20):'',directionFromChange(fx?.chg20,false,0.005),'人民币走弱会提高人民币计价黄金，即使国际金价不变，国内价格也可能受到支撑。',fx,'待回测'));
+ cards.push(factorCard('金银比',gs.ratio!=null?fnum(gs.ratio,2):null,gs.z!=null?'60日Z '+gs.z.toFixed(2):'',gs.z!=null&&gs.z>1?1:gs.z!=null&&gs.z<-1?-1:0,'金银比主要用于贵金属内部相对价值。这里已按AU元/克与AG元/千克统一质量单位后计算。', {source_type:'auto'},'辅助'));
+ return cards;
+}
+function silverFactorData(){
+ const dx=F.dxy, ry=F.real_yield, cot=F.cot_silver, ip=F.indpro, gs=gsRatioStats(); const pmi=manualNum('china_pmi');let cards=[];
+ cards.push(factorCard('金银比',gs.ratio!=null?fnum(gs.ratio,2):null,gs.z!=null?'60日Z '+gs.z.toFixed(2):'',gs.z!=null&&gs.z>1?1:gs.z!=null&&gs.z<-1?-1:0,'金银比偏高意味着白银相对黄金偏便宜，但不代表马上反转。应与工业周期、COT和价格趋势共同判断。',{source_type:'auto'},'待回测'));
+ cards.push(factorCard('白银 COT 非商业净仓',cot?.net!=null?fnum(cot.net,0)+' 手':null,cot?.net_change_4w!=null?'4周变化 '+fnum(cot.net_change_4w,0):'',absChangeDirection(cot?.net_change_4w,false,3000),'净多增加通常代表资金偏多，净多过度拥挤也可能提高回撤风险。COT每周发布，存在时间滞后。',cot,'待回测'));
+ cards.push(factorCard('工业生产 INDPRO',ip?.value!=null?fnum(ip.value,2):null,ip?.yoy!=null?'同比 '+fpct(ip.yoy):'',directionFromChange(ip?.yoy,false,0.01),'白银有明显工业属性。工业生产同比改善通常偏支撑工业需求；本指标是美国工业周期代理，不等同于中国制造业。',ip,'待回测'));
+ cards.push(factorCard('中国制造业 PMI',pmi!=null?fnum(pmi,1):null,pmi!=null?(pmi>=50?'扩张区间':'收缩区间'):'',pmi==null?0:(pmi>50.5?1:pmi<49.5?-1:0),'中国是重要工业需求端。PMI>50通常代表制造业扩张，<50代表收缩；可手工录入官方最新值。',{source_type:'manual'},'待回测'));
+ cards.push(factorCard('美元指数 DXY',dx?.value!=null?fnum(dx.value,2):null,dx?.chg20!=null?'20日 '+fpct(dx.chg20):'',directionFromChange(dx?.chg20,true,0.01),'美元走弱通常有利贵金属，包括白银；但工业需求阶段可能比美元因素更重要。',dx,'待回测'));
+ cards.push(factorCard('美国10Y实际利率',ry?.value!=null?fnum(ry.value,2)+'%':null,ry?.change20!=null?'20期 '+(ry.change20>=0?'+':'')+fnum(ry.change20,2)+'pct':'',absChangeDirection(ry?.change20,true,0.10),'白银的贵金属属性使其也受实际利率影响，但敏感度通常比黄金更不稳定。',ry,'待回测'));
+ return cards;
+}
+function factorSummary(kind){
+ let cards=kind==='cu'?copperFactorData():kind==='au'?goldFactorData():silverFactorData();
+ let dirs=cards.map(c=>{let m=c.match(/factor-card (?:missing )?(pos|neg|neutral)/);return m?m[1]:'neutral'}),pos=dirs.filter(x=>x==='pos').length,neg=dirs.filter(x=>x==='neg').length,avail=cards.filter(x=>!x.includes('factor-card missing')).lengt
