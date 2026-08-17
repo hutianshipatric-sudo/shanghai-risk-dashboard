@@ -1,0 +1,74 @@
+ info"><h3>月均价路径</h3><div class="exec-main">${fnum(ind.month?.avg,kind==='au'?2:0)}</div><div class="exec-text">当前月已实现期货均价。${e.monthSentence}</div></div>
+  <div class="exec-card ${riskClass(ind.risk)}"><h3>管理层解读</h3><div class="exec-main text-${riskClass(ind.risk)}">${ind.risk}风险</div><div class="exec-text">${e.meaning}</div></div>
+ </div>
+ <div class="kpis">
+  <div class="kpi"><div class="label">最新结算/收盘</div><div class="value">${fnum(ind.p,kind==='au'?2:0)}</div><div class="sub">${unit}</div></div>
+  <div class="kpi"><div class="label">本月累计均价</div><div class="value">${fnum(ind.month?.avg,kind==='au'?2:0)}</div><div class="sub">研究代理</div></div>
+  <div class="kpi"><div class="label">近5日变化</div><div class="value ${ind.ret5>=0?'good':'bad'}">${fpct(ind.ret5)}</div></div>
+  <div class="kpi"><div class="label">RSI(14)</div><div class="value ${ind.rsi>70||ind.rsi<30?'warn':''}">${fnum(ind.rsi,1)}</div><div class="sub">>70偏热；<30偏冷，只做辅助</div></div>
+  <div class="kpi"><div class="label">20日年化波动率</div><div class="value ${riskClass(ind.risk)}">${fpct(ind.vol)}</div><div class="sub">近一年分位 ${fpct(ind.volPct,0)}</div></div>
+  <div class="kpi"><div class="label">20日均线偏离Z-score</div><div class="value ${Math.abs(ind.z20||0)>=2?'warn':''}">${ind.z20==null?'—':ind.z20.toFixed(2)}</div><div class="sub">绝对值越高，价格越偏离近期均值</div></div>
+ </div>
+ <div class="grid">
+  <div class="panel"><h3>${name} 连续合约</h3><div class="subtitle">连续合约用于市场状态与因子研究；合同最终计价基准仍需使用相应国内现货/交易所指定口径。</div><div class="chart-wrap"><canvas id="metalChart"></canvas></div></div>
+  <div class="panel"><h3>价格预警</h3>${alertCards(ind,kind,{})}</div>
+ </div>
+ <div class="grid equal" style="margin-top:14px">
+  <div class="panel"><h3>文本分析</h3><div class="analysis-box"><p>${oiNarrative(ind)}</p><p>${special}</p></div><div class="analysis-box"><h4>对合同的含义</h4><p>当前页面先判断市场方向、波动和资金结构。真正落到紫金报价时，应把这些信号转换成“最终月均价区间”和“毛利率压力情景”，而不是直接按今天的价格定性。</p></div></div>
+  <div class="panel"><h3>${kind==='au'?'黄金分析框架':'白银分析框架'}</h3><div class="analysis-box">${kind==='au'?'<p><b>实际利率理论：</b>黄金本身不生息，实际利率上升会提高持有黄金的机会成本；实际利率下降通常更有利于黄金。</p><p><b>美元效应：</b>国际黄金以美元定价，强美元经常对金价形成压力，但危机阶段避险需求可能覆盖这一关系。</p><p><b>波动/趋势：</b>均线、RSI、Z-score只用于识别市场状态，不应替代宏观因子。</p>':'<p><b>双重属性：</b>白银同时是贵金属和工业金属，所以既受黄金/利率/美元影响，也受制造业和铜等工业金属周期影响。</p><p><b>金银比：</b>用于判断银相对黄金是否偏贵或偏便宜；极端值可提示相对价值，但不是单独的反转保证。</p><p><b>铜银相关：</b>相关性升高时，工业需求逻辑可能更加主导银价。</p>'}</div></div>
+ </div>
+ ${factorSection(kind)}
+ <div class="table-panel"><h3>最近交易数据</h3>${table(rows,[['日期','date'],['收盘','close',v=>fnum(v,kind==='au'?2:0)],['结算','settle',v=>fnum(v,kind==='au'?2:0)],['成交量','volume',v=>fnum(v,0)],['持仓量','open_interest',v=>fnum(v,0)]],40)}</div>`;
+ drawLine(document.getElementById('metalChart'),rows.slice(-260),key,{dec:kind==='au'?2:0,avg:ind.month?.avg,color:kind==='au'?'#f1c65b':'#c8d3e2'});
+}
+function renderFactors(){
+ let cu=factorSummary('cu'),au=factorSummary('au'),ag=factorSummary('ag');
+ document.getElementById('content').innerHTML=`
+ <div class="executive"><div class="exec-card info"><h3>综合因子中心</h3><div class="exec-main">数据 + 解释 + 准入</div><div class="exec-text">这里把自动数据、手工因子、经济含义和OOS准入状态放在一起。因子“看起来合理”不等于可以进入毛利率模型。</div></div><div class="exec-card"><h3>铜因子方向</h3><div class="exec-main">${cu.tone}</div><div class="exec-text">可用 ${cu.avail}/${cu.total}；偏支撑 ${cu.pos}，偏压制 ${cu.neg}。</div></div><div class="exec-card"><h3>贵金属因子</h3><div class="exec-main">Au ${au.tone} / Ag ${ag.tone}</div><div class="exec-text">黄金重点看实际利率/DXY/COT；白银额外看金银比与工业周期。</div></div></div>
+ <div class="panel" style="min-height:auto"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap"><div><h3>数据源健康状态</h3><div class="subtitle">绿色=自动/缓存可用；黄色=部分或缓存；红色=待接入/浏览器跨域失败。</div></div><button class="btn" onclick="refreshFactors()">刷新外部因子</button></div><div class="status-grid">${dataHealth()}</div></div>
+ <div class="section-title">铜：供给 / 汇率 / 外盘 / 矿端</div><div class="factor-summary">${cu.html}</div>
+ <div class="section-title">黄金：利率 / 美元 / 资金</div><div class="factor-summary">${au.html}</div>
+ <div class="section-title">白银：相对价值 / 资金 / 工业周期</div><div class="factor-summary">${ag.html}</div>
+ ${manualPanel()}
+ <div class="section-title">因子进入最终毛利率模型的门槛</div>
+ <div class="table-panel"><table><thead><tr><th>因子组</th><th>当前状态</th><th>必须通过的OOS标准</th><th>处理</th></tr></thead><tbody>
+ <tr><td>简单技术/价格因子组合</td><td><span class="gate fail">未通过</span></td><td>第二轮中 Au/Ag 组合 MAE 均劣于 No-change（约 -7.1% / -5.8%改善）</td><td>只做辅助状态，不进入核心预测</td></tr>
+ <tr><td>SHFE库存/仓单/期限结构</td><td><span class="gate wait">待回测</span></td><td>剩余月均价 OOS MAE 稳定下降；5/10/15日锚点方向不反复</td><td>通过后可进入铜核心模型</td></tr>
+ <tr><td>USD/CNY + COMEX/LME + TC</td><td><span class="gate wait">待回测</span></td><td>相对No-change有增量；控制汇率/跨市场共线性</td><td>通过后进入铜价格风险层</td></tr>
+ <tr><td>实际利率 + DXY + COT</td><td><span class="gate wait">待回测</span></td><td>对Au剩余月均价OOS稳定；宏观数据按发布日期滞后处理</td><td>通过后进入黄金模型</td></tr>
+ <tr><td>金银比 + COT + 工业周期</td><td><span class="gate wait">待回测</span></td><td>对Ag剩余月均价OOS稳定；低频数据不允许前视</td><td>通过后进入白银模型</td></tr>
+ </tbody></table></div>`;
+}
+function renderFAQ(){document.getElementById('content').innerHTML=`
+ <div class="panel" style="min-height:auto"><h3>常见问题</h3><div class="note">面向非金融专业读者。问题围绕“价格怎么影响结算、因子怎么解释、什么时候需要行动”。</div></div>
+ <div class="faq" style="margin-top:12px">
+ <details open><summary>1. 为什么今天铜价大涨/大跌，但最终合同价格不一定变化很多？</summary><p>因为合同核心是交货当月的平均结算价。月内已经发生的交易日越多，已经实现的均价权重越高。越接近月底，单日行情对最终月均价的边际影响越小。</p></details>
+ <details><summary>2. 库存和仓单有什么区别？为什么都要看？</summary><p>库存周报更接近交易所指定交割仓库的显性库存；注册仓单是已经注册、可用于期货交割的货物，更接近期货可交割供应。库存下降但仓单不降、或反过来，都需要结合期限结构判断，不能只看一个数字。</p></details>
+ <details><summary>3. 库存下降是否意味着铜价一定上涨？</summary><p>不是。库存下降通常偏紧，但市场可能已经提前反映；如果同时看到仓单下降、近月升水、价格增仓上涨，证据会更完整。系统因此采用多因子确认，而不是“库存下降=买入”。</p></details>
+ <details><summary>4. Backwardation / Contango 对业务意味着什么？</summary><p>Backwardation指近月比远月贵，常见于近端资源偏紧；Contango指远月更贵，通常与库存、资金成本或近端供应不紧有关。它对采购时点和套保节奏有参考价值，但不是单独的涨跌预测。</p></details>
+ <details><summary>5. USD/CNY 为什么会影响国内铜、金、银？</summary><p>人民币走弱时，同样的美元国际价格折算成人民币会更高，因此国内金属价格可能受到支撑。对进口铜精矿而言，人民币走弱也可能提高进口成本，所以要同时看采购和销售两端的计价币种。</p></details>
+ <details><summary>6. 铜精矿 TC 是什么？为什么TC下降可能代表矿端偏紧？</summary><p>TC是冶炼厂处理铜精矿获得的加工费。矿端供应紧时，冶炼厂争夺原料，TC往往下降；原料宽松时TC通常上升。因为本项目采购的是铜精矿，TC比单纯精铜价格更贴近上游供给状态。</p></details>
+ <details><summary>7. 黄金为什么重点看实际利率和美元？</summary><p>黄金本身不产生利息，实际利率上升会提高持有黄金的机会成本；美元走强又常对美元计价黄金形成压力。但危机避险、央行购金等时期，这些传统关系会阶段性失效，所以仍需回测。</p></details>
+ <details><summary>8. 金银比高就代表白银一定会上涨吗？</summary><p>不是。金银比高只说明白银相对黄金便宜，属于相对价值信息。白银还有明显工业属性，因此还要看制造业、铜价、COT等。全面版已把AU元/克与AG元/千克统一质量单位后再计算金银比。</p></details>
+ <details><summary>9. COT 是什么？为什么数据不是每天更新？</summary><p>COT是美国CFTC发布的持仓结构报告，常用来观察非商业/投机资金净多空。它是周频数据，通常周五发布、反映此前周二的持仓，因此有滞后，适合资金拥挤度和中短期状态判断，不适合做日内信号。</p></details>
+ <details><summary>10. 为什么某些因子显示“—”或待接入？</summary><p>全面版不会把接口失败、当天未发布或跨域受限的数据当成0。浏览器无法直接访问某些官方接口时会显示“—”。可运行文件夹内“一键更新数据.py”生成本地缓存，或者对TC/LME/PMI使用手工输入。</p></details>
+ <details><summary>11. 为什么模型不直接给“下个月铜价一定是XX元”？</summary><p>本项目的核心是贸易毛利风险，而不是做方向投机。我们更关注最终月均价区间、预测误差和毛利率压力。精确点位容易产生虚假确定性，尤其当模型的样本外误差仍大于项目利润安全垫时。</p></details>
+ <details><summary>12. 什么情况下一个因子才能进入最终毛利率模型？</summary><p>至少要在“剩余月均价”样本外回测中稳定优于No-change基准，并在月内第5/10/15个交易观察点保持相对稳定；宏观与周度数据必须按真实发布日期处理，不能使用未来信息。</p></details>
+ </div>`}
+function renderMethod(){document.getElementById('content').innerHTML=`
+ <div class="panel" style="min-height:auto"><h3>分析原则：最终评价指标是“月均价误差和毛利率误差”</h3><div class="note">价格趋势、RSI、波动率、库存、仓单、美元、COT等都只是候选解释变量。只有样本外真正增加信息的因子才进入正式模型。</div></div>
+ <div class="section-title">核心分析理论</div><div class="method-grid">
+ <div class="method"><h4>月均价锚定</h4><p><strong>最贴合合同。</strong> 已实现交易日逐步锁定月均价，剩余日的影响权重不断下降。</p><div class="use">核心目标：Remaining-Month Average Return。</div></div>
+ <div class="method"><h4>库存 / 仓单</h4><p>库存是显性供给缓冲，仓单更接近期货可交割资源。方向一致时信息更强。</p><div class="use">铜近端供需因子。</div></div>
+ <div class="method"><h4>期限结构</h4><p>近月-远月价差反映近端供需、库存和持有成本。Backwardation不能被简单理解成必涨。</p><div class="use">铜近端紧张程度。</div></div>
+ <div class="method"><h4>跨市场 + 汇率</h4><p>COMEX/LME反映国际铜，USD/CNY把美元价格传导到人民币价格。国内外背离可能来自汇率、税费和本地供需。</p><div class="use">解释SHFE与外盘差异。</div></div>
+ <div class="method"><h4>铜精矿 TC</h4><p>TC下降通常对应矿端原料偏紧，是铜精矿业务特有的重要供给因子。</p><div class="use">上游供给与采购风险。</div></div>
+ <div class="method"><h4>黄金：实际利率 + DXY</h4><p>实际利率衡量持有黄金机会成本，DXY影响美元计价。关系可能随宏观Regime变化。</p><div class="use">Au中期宏观因子。</div></div>
+ <div class="method"><h4>白银：双重属性</h4><p>白银既是贵金属又是工业金属，因此要把金银比、实际利率和工业周期一起建模。</p><div class="use">Ag相对价值与工业需求。</div></div>
+ <div class="method"><h4>COT资金结构</h4><p>非商业净多变化反映投机资金倾向。极端拥挤既可能确认趋势，也可能增加反转风险。</p><div class="use">周频资金因子。</div></div>
+ <div class="method"><h4>波动率 / 技术状态</h4><p>用于风险分层、异常检测和报价安全垫，不再作为主要方向预测器。</p><div class="use">辅助层，不直接进核心模型。</div></div>
+ </div>
+ <div class="section-title">OOS准入标准</div><div class="glossary">
+ <div class="gloss-item"><b>1. 必须优于No-change</b><div>模型预测剩余月均价的MAE必须低于“剩余价格保持当前水平”的简单基准；否则复杂模型没有增量价值。</div></div>
+ <div class="gloss-item"><b>2. Walk-forward，不随机打乱</b><div>时间序列必须用过去训练、向未来测试，避免把未来信息泄漏回训练集。</div></div>
+ <div class="gloss-item"><b>3. 第5/10/15交易观察点稳健</b><div>同一因子不能只在月初或月末偶然有效；需要检查不同月内阶段。</div></
