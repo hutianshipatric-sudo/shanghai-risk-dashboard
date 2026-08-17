@@ -1,0 +1,1 @@
+window.EXTERNAL_FACTOR_DATA = window.EXTERNAL_FACTOR_DATA || {};
